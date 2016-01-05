@@ -1,0 +1,10 @@
+https://maps.google.com/maps?ll=33.388805,-111.818495&q=33.388805,-111.818495
+https://maps.google.com/maps?ll=33.303331,-111.84198&q=33.303331,-111.84198
+https://maps.google.com/maps?ll=33.415546,-111.821435&q=33.415546,-111.821435
+
+https://www.google.com/maps/dir/33.286462,-111.887526/33.2861453,-111.8873531/@33.2862875,-111.887801,254m/data=!3m2!1e3!4b1
+
+https://www.ingress.com/mission/8f0d8aefc9f24ea0b077524086bc6ecd.1c
+
+
+33.388805,-111.818495
