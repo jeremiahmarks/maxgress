@@ -1,7 +1,7 @@
 # @Author: jeremiah.marks
 # @Date:   2015-12-21 14:48:33
 # @Last Modified by:   jeremiah.marks
-# @Last Modified time: 2016-01-05 01:34:30
+# @Last Modified time: 2016-01-10 21:47:23
 
 ###
 # Maxgress will accept a series of portal coordinates, as
@@ -33,7 +33,7 @@ from cenmesport import portals
 import numpy as np
 from scipy.spatial import ConvexHull
 import matplotlib.pyplot as plt
-
+from collections import defaultdict
 # combos=[comb for comb in combinations(hullportals, 3)]
 # points = np.array(ps)
 # hull = ConvexHull(points)
@@ -81,6 +81,8 @@ def convex_hull(points):
     # Concatenation of the lower and upper hulls gives the convex hull.
     # Last point of each list is omitted because it is repeated at the beginning of the other list.
     return lower[:-1] + upper[:-1]
+
+
 class Portal(object):
     """portal:
         a portal represents an Ingress portal. It is literally
@@ -90,13 +92,30 @@ class Portal(object):
     def __init__(self, bookmarkData):
         super(Portal, self).__init__()
         self.name = bookmarkData['label']
-        self.lat=bookmarkData['lat']
-        self.lon = bookmarkData['lon']
-        self.ilat = int(bookmarkData['lat']*10**6)
-        self.ilon = int(bookmarkData['lon']*10**6)
+        self.lat=float(bookmarkData['lat'])
+        self.lon = float(bookmarkData['lon'])
         self.coords = (self.lon, self.lat)
         self.faction = None
         self.bmd=bookmarkData
+        self.incominglinks={}
+        self.outgoinglinks={}
+        self.allLinks = self.getAllLinks
+
+    def getAllLinks(self):
+        alllinks={}
+        alllinks.update(self.incominglinks)
+        alllinks.update(self.outgoinglinks)
+        return alllinks
+
+    def plot(self, someturtle):
+        # someturtle.pu()
+        someturtle.goto(self.coords)
+        someturtle.seth(0)
+        someturtle.pd()
+        for x in range(8):
+            someturtle.left(45)
+            someturtle.fd(0.0002)
+        someturtle.pu()
 
 class Link(object):
     """A link serves as a connection between two portals.
@@ -110,9 +129,77 @@ class Link(object):
         self.destination=destinationPortal
         self.destcoords=destinationPortal.coords
         self.lat=[originPortal.lat, destinationPortal.lat]
+        self.xs=self.lat
         self.lon=[originPortal.lon, destinationPortal.lon]
+        self.ys=self.lon
+        # quick basic math lesson here:
+        #
+        # The equation for a line between two points is
+        #    y = mx + b
+        #    "b" is the value for y when X is equal to zero,
+        #       however in this case, the b is really meaningless
+        #       because we are dealing with lat/lon and are
+        #       nowhere near the equator
+        #
+        #    "m" is the slope, the "rise over the run"
+        #       Think of it like the slope of the roof on
+        #       your house, it is how many feet up/down you
+        #       will move if you walk some distance towards the
+        #       the peak of the root.
+        # (This would make "b" where the roof would touch the ground,
+        # if it extended the all the way to the ground.)
+        #
+        #   With two points we can treat them as (x,y) coordnates.
+                # Let one portal be (x1,y1) = (lon, lat) (or the other way aroudn, I forget)
+                # portal 2 = (x2,y2)
+        # This means that the slope between the two of them is
+            # m = rise/run
+            # m = (y2-y1)/(x2-x1)
+        # using this, the equation becomes:
+            # y = (((y2-y1)/(x2-x1)) * x) + b
+        # Since b is the point where the line has y=0
+        # it is
+            # 0 = (((y2-y1)/(x2-x1)) * x) + b
+            # -b = ((y2-y1)/(x2-x1)) * x
+            # b = -((y2-y1)/(x2-x1)) * x
+        #  Shit, I missed something, I will need to write it out,
+        # but what we end up getting to is point-slope form, which
+        # Point slope form:
+            # y-y1 = m(x-x1)
+            # Since we will have the slope, what we will do
+            # is set the equation as
+                # from x1 to x2 the y value is:
+                # y = slope*(xinput-originx) + y input
+            # this will allow us to see if a potential link crosses
+            # this link by seeing if it is above/below it at all endpoints
+            # between and including originx, destinationx, and testingx, if it is within
+            # the area.
+                #
+        #
+        #
+        #       this breaks down to:
+        #
+        #
+        #
+        #
+        self.slope=float(self.ys[0] - self.ys[1])/float(self.xs[0] - self.xs[1])
+
+    def yatx(self,xvalue):
+        xslist = list(self.xs).append(xvalue)
+        if xvalue not in self.xs:
+            if xvalue in max(xslist) or xvalue in min(xslist):
+            # This would indicate that this point is not between the two points at all
+                return None
+        return self.slope * (xvalue - self.xs[0]) + self.ys[0]
 
 
+    def plot(self, someturtle):
+        someturtle.pu()
+        someturtle.goto(self.origin.coords)
+        someturtle.pd()
+        someturtle.circle(0.0001)
+        someturtle.goto(self.destination.coords)
+        someturtle.circle(0.0001)
 
 
 class Field(object):
@@ -129,31 +216,40 @@ class Field(object):
         self.name=None
         self.portals=[]
         self.links=[]
+        self.portallons=[]
+        self.portallats=[]
+        self.linksbycoords=defaultdict(list) # linksbycoords
 
     def findHull(self):
         self.hullcoords = convex_hull([portal.coords for portal in self.portals])
 
     def addportal(self, portalData):
-        self.portals.append(Portal(portalData))
+        newportal=Portal(portalData)
+        self.portallats.append(newportal.lat)
+        self.portallons.append(newportal.lon)
+        self.portals.append(newportal)
 
     def updateStats(self):
         self.lats = sorted(self.portals, key=lambda k: k.lat)
         self.lons = sorted(self.portals, key=lambda k: k.lon)
-        self.latextrema = (self.lats[0].ilat, self.lats[-1].ilat)
-        self.lonextrema = (self.lats[0].ilon, self.lons[-1].ilon)
+        self.latextrema = (self.lats[0].lat, self.lats[-1].lat)
+        self.lonextrema = (self.lats[0].lon, self.lons[-1].lon)
         self.latdiff = self.latextrema[0] - self.latextrema[1]
         self.londiff = self.lonextrema[0] - self.lonextrema[1]
         self.findcenter()
+        self.lowerleft=(min(self.portallons), min(self.portallats))
+        self.upperright=(max(self.portallons), max(self.portallats))
+        self.screen.setworldcoordinates(self.lowerleft[0], self.lowerleft[1], self.upperright[0], self.upperright[1])
 
     def findcenter(self):
-        self.latcenter=sum([portal.ilat for portal in self.portals])/len(self.portals)
-        self.loncenter=sum([portal.ilon for portal in self.portals])/len(self.portals)
+        self.latcenter=sum([portal.lat for portal in self.portals])/len(self.portals)
+        self.loncenter=sum([portal.lon for portal in self.portals])/len(self.portals)
         self.centerofmass=(self.loncenter, self.latcenter)
 
     def drawPortal(self):
         for eachportal in self.portals:
             self.drawer.pu()
-            self.drawer.goto(eachportal.ilon - self.loncenter, eachportal.ilat - self.latcenter)
+            self.drawer.goto(eachportal.lon - self.loncenter, eachportal.lat - self.latcenter)
             self.drawer.pd()
             self.drawer.circle(10)
 
@@ -164,6 +260,19 @@ class Field(object):
                 returnPortal = eachportal
                 break
         return returnPortal
+
+    def addLink(self, origin, destination):
+        outbound = destination in self.linksbycoords[origin.coords]
+        inbound = origin in self.linksbycoords[origin.coords]
+        #
+        # Sigh
+        # y=mx+b
+        # m=rise/run = originlon-destlon/originlat-destlat
+        # y-y1 = m(x-x1) This is the base formula for any
+        #  line through this portal.
+        potentiallink= lambda k: ((origin.lon-destination.lon)/origin.lat-destination.lat)(k-origin.coords[0])+origin.coords[1]
+        lonrange = max(origin.lon, destination.lon) - min(origin.lon, destination.lon)
+
 
 
 class MUField(object):
@@ -217,16 +326,20 @@ class MUField(object):
                     testfield.testAndAdd(eachportal)
                 self.testfields[len(testfield.interiorportals)].append(testfield)
             self.maininternalhull=self.testfields[max(self.testfields.keys())][0]
+            # self.interiorfields.append(self.maininternalhull)
+            newpoint=None
             for eachpoint in self.maininternalhull.vertexes:
                 if eachpoint not in self.vertexes:
                     newpoint=eachpoint
-                    break
+            if newpoint is None:
+                raise Exception
             for eachlink in self.links:
                 thisfield = MUField(eachlink.origin, eachlink.destination, newpoint)
                 thisfield.field=self.field
                 for eachportal in self.interiorportals:
                     thisfield.testAndAdd(eachportal)
                 self.interiorfields.append(thisfield)
+            print len(self.interiorfields)
             for eachfield in self.interiorfields:
                 eachfield.findInteriorHulls()
 
@@ -239,7 +352,15 @@ class MUField(object):
             retstr+=eachfield.printSelf(indent=indent+1) + "\n"
         return retstr
 
+    def plotall(self, someturtle):
+        for eachlink in self.links:
+            eachlink.plot(someturtle)
+        for eachfield in self.interiorfields:
+            eachfield.plot(someturtle)
 
+    def plot(self, someturtle):
+        for eachlink in self.links:
+            eachlink.plot(someturtle)
 
 myfield = Field()
 for portal in portals:
@@ -258,22 +379,31 @@ for eachfield in potentialMainFields:
 
 prif=potentialfields[2]
 prif.findInteriorHulls()
-potentialinteriorfields=[]
-for eachthing in prif.potentialInteriorHulls:
-    subfield=MUField(myfield.findPortal(eachthing[0]), myfield.findPortal(eachthing[1]), myfield.findPortal(eachthing[2]))
-    for eachportal in prif.interiorportals:
-        subfield.testAndAdd(eachportal)
-    print len(potentialinteriorfields), len(subfield.interiorportals)
-    potentialinteriorfields.append(subfield)
+# potentialinteriorfields=[]
+# for eachthing in prif.potentialInteriorHulls:
+#     subfield=MUField(myfield.findPortal(eachthing[0]), myfield.findPortal(eachthing[1]), myfield.findPortal(eachthing[2]))
+#     for eachportal in prif.interiorportals:
+#         subfield.testAndAdd(eachportal)
+#     print len(potentialinteriorfields), len(subfield.interiorportals)
+#     potentialinteriorfields.append(subfield)
 
-for eachthing in prif.potentialInteriorHulls:
-    subfield=MUField(myfield.findPortal(eachthing[0]), myfield.findPortal(eachthing[1]), myfield.findPortal(eachthing[2]))
-    for eachportal in prif.interiorportals:
-        subfield.testAndAdd(eachportal)
-    print len(potentialinteriorfields), len(subfield.interiorportals)
-    potentialinteriorfields.append(subfield)
-for eachfield in potentialinteriorfields:
-    print "\n"*3
-    for eachv in eachfield.vertexes:
-        print eachv.name
-
+# for eachthing in prif.potentialInteriorHulls:
+#     subfield=MUField(myfield.findPortal(eachthing[0]), myfield.findPortal(eachthing[1]), myfield.findPortal(eachthing[2]))
+#     for eachportal in prif.interiorportals:
+#         subfield.testAndAdd(eachportal)
+#     print len(potentialinteriorfields), len(subfield.interiorportals)
+#     potentialinteriorfields.append(subfield)
+# for eachfield in potentialinteriorfields:
+#     print "\n"*3
+#     for eachv in eachfield.vertexes:
+#         print eachv.name
+myfield.updateStats()
+myfield.drawer.speed(0)
+# prif.plotall(myfield.drawer)
+for pos, eachportal in enumerate(portals):
+    for otherpos, otherportal in enumerate(portals):
+        if otherpos>pos:
+            myfield.drawer.pu()
+            myfield.drawer.goto(eachportal.coords)
+            myfield.drawer.pd()
+            myfield.goto(otherportal.coords)
