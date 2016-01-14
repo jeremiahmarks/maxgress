@@ -1,7 +1,7 @@
 # @Author: jeremiah.marks
 # @Date:   2015-12-21 14:48:33
 # @Last Modified by:   jeremiah.marks
-# @Last Modified time: 2016-01-10 21:47:23
+# @Last Modified time: 2016-01-10 23:15:26
 
 ###
 # Maxgress will accept a series of portal coordinates, as
@@ -107,6 +107,9 @@ class Portal(object):
         alllinks.update(self.outgoinglinks)
         return alllinks
 
+    def __eq__(self, other):
+        return self.lat==other.lat and self.lon == other.lon
+
     def plot(self, someturtle):
         # someturtle.pu()
         someturtle.goto(self.coords)
@@ -118,12 +121,16 @@ class Portal(object):
         someturtle.pu()
 
 class Link(object):
+    global linklist
+    if 'linklist' not in globals():
+        linklist=set()
     """A link serves as a connection between two portals.
     Currently it will remain neutral, but it should either
     adopt the same orientation as its portals.
     It will also provide an equation to define itself
     """
     def __init__(self, originPortal, destinationPortal):
+        global linklist
         self.origin=originPortal
         self.origincoords=originPortal.coords
         self.destination=destinationPortal
@@ -132,6 +139,13 @@ class Link(object):
         self.xs=self.lat
         self.lon=[originPortal.lon, destinationPortal.lon]
         self.ys=self.lon
+        self.portals=[self.origin, self.destination]
+        self.drawn=False
+        # for eachlink in linklist:
+        #     if eachlink == self:
+        #         return eachlink
+        # linklist.add(self)
+        # return self
         # quick basic math lesson here:
         #
         # The equation for a line between two points is
@@ -182,7 +196,7 @@ class Link(object):
         #
         #
         #
-        self.slope=float(self.ys[0] - self.ys[1])/float(self.xs[0] - self.xs[1])
+        # self.slope=float(self.ys[0] - self.ys[1])/float(self.xs[0] - self.xs[1])
 
     def yatx(self,xvalue):
         xslist = list(self.xs).append(xvalue)
@@ -192,20 +206,29 @@ class Link(object):
                 return None
         return self.slope * (xvalue - self.xs[0]) + self.ys[0]
 
+    def __eq__(self, other):
+        return self.origin in other.portals and self.destination in other.portals
 
     def plot(self, someturtle):
-        someturtle.pu()
-        someturtle.goto(self.origin.coords)
-        someturtle.pd()
-        someturtle.circle(0.0001)
-        someturtle.goto(self.destination.coords)
-        someturtle.circle(0.0001)
+        if self.drawn:
+            pass
+        else:
+            someturtle.pu()
+            someturtle.goto(self.origin.coords)
+            someturtle.pd()
+            someturtle.circle(0.0001)
+            someturtle.goto(self.destination.coords)
+            someturtle.circle(0.0001)
+            self.drawn=True
 
 
 class Field(object):
     """Field:
         A field is a collection of portals and links
     """
+    global linklist
+    if 'linklist' not in globals():
+        linklist=set()
 
     def __init__(self):
         self.drawer=Turtle()
@@ -262,33 +285,41 @@ class Field(object):
         return returnPortal
 
     def addLink(self, origin, destination):
-        outbound = destination in self.linksbycoords[origin.coords]
-        inbound = origin in self.linksbycoords[origin.coords]
-        #
-        # Sigh
-        # y=mx+b
-        # m=rise/run = originlon-destlon/originlat-destlat
-        # y-y1 = m(x-x1) This is the base formula for any
-        #  line through this portal.
-        potentiallink= lambda k: ((origin.lon-destination.lon)/origin.lat-destination.lat)(k-origin.coords[0])+origin.coords[1]
-        lonrange = max(origin.lon, destination.lon) - min(origin.lon, destination.lon)
-
+        # outbound = destination in self.linksbycoords[origin.coords]
+        # inbound = origin in self.linksbycoords[origin.coords]
+        # #
+        # # Sigh
+        # # y=mx+b
+        # # m=rise/run = originlon-destlon/originlat-destlat
+        # # y-y1 = m(x-x1) This is the base formula for any
+        # #  line through this portal.
+        # potentiallink= lambda k: ((origin.lon-destination.lon)/origin.lat-destination.lat)(k-origin.coords[0])+origin.coords[1]
+        # lonrange = max(origin.lon, destination.lon) - min(origin.lon, destination.lon)
+        global linklist
+        testlink=Link(origin, destination)
+        if 'linklist' not in globals():
+            linklist=set()
+        for eachlink in linklist:
+            if testlink == eachlink:
+                return eachlink
+        return testlink
 
 
 class MUField(object):
     """A MUField is made up of three points and links to define
     the boundries of the field. Within it can exist other
     Portals, links, and fields."""
-    def __init__(self, portal1, portal2, portal3):
+    def __init__(self, portal1, portal2, portal3, myfield):
         super(MUField, self).__init__()
         self.v1=portal1
         self.v2=portal2
         self.v3=portal3
         self.vertexes=(self.v1, self.v2, self.v3)
-        self.links=[Link(comb[0], comb[1]) for comb in combinations(self.vertexes, 2)]
+        self.links=[myfield.addLink(comb[0], comb[1]) for comb in combinations(self.vertexes, 2)]
         self.interiorportals=set()
         self.potentialInteriorHulls=[]
         self.interiorfields=[]
+        self.myfield = myfield
 
     def PortalWithin(self, portalInQuestion):
         if len(convex_hull([portal.coords for portal in [self.v1, self.v2, self.v3, portalInQuestion]]))>3:
@@ -320,7 +351,7 @@ class MUField(object):
                 if len(potentialportals) >2:
                     self.potentialInteriorHulls.append(convex_hull(potentialportals))
             for eachpotentialinteriorhull in self.potentialInteriorHulls:
-                testfield=MUField(self.field.findPortal(eachpotentialinteriorhull[0]), self.field.findPortal(eachpotentialinteriorhull[1]), self.field.findPortal(eachpotentialinteriorhull[2]))
+                testfield=MUField(self.field.findPortal(eachpotentialinteriorhull[0]), self.field.findPortal(eachpotentialinteriorhull[1]), self.field.findPortal(eachpotentialinteriorhull[2]), self.myfield)
                 testfield.field=self.field
                 for eachportal in self.interiorportals:
                     testfield.testAndAdd(eachportal)
@@ -334,7 +365,7 @@ class MUField(object):
             if newpoint is None:
                 raise Exception
             for eachlink in self.links:
-                thisfield = MUField(eachlink.origin, eachlink.destination, newpoint)
+                thisfield = MUField(eachlink.origin, eachlink.destination, newpoint, self.myfield)
                 thisfield.field=self.field
                 for eachportal in self.interiorportals:
                     thisfield.testAndAdd(eachportal)
@@ -356,7 +387,7 @@ class MUField(object):
         for eachlink in self.links:
             eachlink.plot(someturtle)
         for eachfield in self.interiorfields:
-            eachfield.plot(someturtle)
+            eachfield.plotall(someturtle)
 
     def plot(self, someturtle):
         for eachlink in self.links:
@@ -370,7 +401,7 @@ potentialMainFields=[triangle for triangle in combinations(myfield.hullcoords, 3
 potentialfields=[]
 for eachfield in potentialMainFields:
 
-    thisfield = MUField(myfield.findPortal(eachfield[0]), myfield.findPortal(eachfield[1]), myfield.findPortal(eachfield[2]))
+    thisfield = MUField(myfield.findPortal(eachfield[0]), myfield.findPortal(eachfield[1]), myfield.findPortal(eachfield[2]), myfield)
     thisfield.field=myfield
     for eachportal in myfield.portals:
         thisfield.testAndAdd(eachportal)
@@ -399,11 +430,11 @@ prif.findInteriorHulls()
 #         print eachv.name
 myfield.updateStats()
 myfield.drawer.speed(0)
-# prif.plotall(myfield.drawer)
-for pos, eachportal in enumerate(portals):
-    for otherpos, otherportal in enumerate(portals):
-        if otherpos>pos:
-            myfield.drawer.pu()
-            myfield.drawer.goto(eachportal.coords)
-            myfield.drawer.pd()
-            myfield.goto(otherportal.coords)
+prif.plotall(myfield.drawer)
+# for pos, eachportal in enumerate(myfield.portals):
+#     for otherpos, otherportal in enumerate(myfield.portals):
+#         if otherpos>pos:
+#             myfield.drawer.pu()
+#             myfield.drawer.goto(eachportal.coords)
+#             myfield.drawer.pd()
+#             myfield.drawer.goto(otherportal.coords)
